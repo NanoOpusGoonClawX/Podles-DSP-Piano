@@ -2,7 +2,7 @@
 #include "esp_log.h"
 
 /* Public Function Implementations */
-void init_continuous_adc(adc_continuous_handle_t *out_handle)
+void init_adc(adc_continuous_handle_t *out_handle)
 {
     adc_continuous_handle_cfg_t handle_configuration = {
         .max_store_buf_size = 4096,

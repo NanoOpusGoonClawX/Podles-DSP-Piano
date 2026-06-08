@@ -3,12 +3,12 @@
 #include "esp_timer.h"
 #include "dsps_fft2r.h"
 #include "dsps_math.h"
+#include "dsps_wind.h"  
 #include <math.h>
 #include <stdio.h>
 
-static const char *TAG = "AUDIO_DSP";
+static const char *TAG = "DSP_MODULE";
 
-/* Constants moved from main */
 #define HPS_HARMONICS                5        
 #define HOLD_WINDOW_MS               200      
 #define MIN_VALID_MAGNITUDE          800.0f   

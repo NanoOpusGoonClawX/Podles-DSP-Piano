@@ -10,8 +10,16 @@
 #define SAMPLE_RATE 20480
 #define NOTE_ACTIVATION_THRESHOLD_MV 150
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Public Functions */
 void init_dsp_library(void);
 void process_audio_frame(const float* sample_buffer, uint32_t signal_amplitude_mv);
 
 #endif // AUDIO_DSP_H
+
+#ifdef __cplusplus
+}
+#endif

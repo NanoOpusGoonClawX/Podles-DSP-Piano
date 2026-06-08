@@ -18,3 +18,4 @@ _autosave-*
 # Editor / OS
 .vscode/
 .DS_Store
+.history/
