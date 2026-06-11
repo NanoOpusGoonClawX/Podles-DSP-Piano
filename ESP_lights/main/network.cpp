@@ -14,6 +14,8 @@ bool NetworkManager::begin() {
         return false;
     }
 
+    //* we need to add the receiving logic function
+
     // Initialize the ESP-NOW protocol
     if (esp_now_init() != ESP_OK) {         
         ESP_LOGE(TAG, "Error initializing ESP-NOW");
