@@ -13,5 +13,5 @@ idf_component_register(
         ${CORE_SRCS}
     INCLUDE_DIRS "." "core" "hal"
     PRIV_REQUIRES
-        contracts esp_adc esp_timer esp_driver_gpio esp_wifi nvs_flash esp_websocket_client
+        contracts esp-dsp esp_adc esp_timer esp_driver_gpio esp_wifi nvs_flash esp_websocket_client
 )

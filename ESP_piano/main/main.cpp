@@ -8,6 +8,7 @@
 #include "hal/capture_source.h"
 #include "hal/wifi_sta.h"
 #include "hal/ws_stream.h"
+#include "core/esp_hint.h"
 #include "core/ringbuf.h"
 #include "core/pcm_framer.h"
 
@@ -18,6 +19,11 @@ static int16_t s_rb_storage[4096];
 static ringbuf_t s_ringbuf;
 static pcm_framer_t s_framer;
 
+static void esp_hint_log_event(const char *note_event_json, void *ctx) {
+    (void)ctx;
+    ESP_LOGI("ESP_HINT_EVENT", "%s", note_event_json);
+}
+
 // capture_task: runs on core 1, feeds ring buffer
 static void capture_task(void *arg) {
     capture_source_t *src = capture_source_get_default();
@@ -25,6 +31,7 @@ static void capture_task(void *arg) {
     int16_t samples[64];
     while (1) {
         if (src->read(src, samples, 64) == ESP_OK) {
+            esp_hint_feed(samples, 64);
             for (int i = 0; i < 64; i++) ringbuf_push(&s_ringbuf, samples[i]);
         }
     }
@@ -76,6 +83,7 @@ extern "C" void app_main(void) {
     // 6. Ring buffer + framer
     ringbuf_init(&s_ringbuf, s_rb_storage, 4096);
     pcm_framer_init(&s_framer, BOARD_SAMPLE_RATE_HZ);
+    esp_hint_init(esp_hint_log_event, NULL, BOARD_SAMPLE_RATE_HZ);
 
     // 7. Launch pinned tasks
     xTaskCreatePinnedToCore(capture_task, "capture", 4096, NULL, 5, NULL, 1);
