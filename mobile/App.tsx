@@ -25,8 +25,12 @@ const WHITE_KEY_WIDTH = 46;
 const BLACK_KEY_WIDTH = 28;
 const KEYBOARD_HEIGHT = 160;
 
+// Architecture: connects to laptop server (ws://LAPTOP_IP:8000/notes)
+// The ESP32-S3 streams audio to the laptop; the laptop transcribes and
+// publishes note events. Enter your laptop's IP address in the field below.
+
 export default function App() {
-  const [ip, setIp] = useState<string>('192.168.4.1');
+  const [ip, setIp] = useState<string>('192.168.1.100');
   const [status, setStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeKeys, setActiveKeys] = useState<{ [midi: number]: 'left' | 'right' | 'local' }>({});
@@ -62,7 +66,7 @@ export default function App() {
     };
   }, []);
 
-  // Connect to ESP32 WebSocket
+  // Connect to laptop server WebSocket
   const connectEsp = () => {
     if (wsRef.current) {
       addLog('Closing existing WebSocket connection...');
@@ -75,16 +79,16 @@ export default function App() {
       return;
     }
 
-    addLog(`Connecting to ws://${ip}/ws ...`, 'SYS');
+    addLog(`Connecting to ws://${ip}:8000/notes ...`, 'SYS');
     setStatus('CONNECTING');
 
     try {
-      const ws = new WebSocket(`ws://${ip}/ws`);
+      const ws = new WebSocket(`ws://${ip}:8000/notes`);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         setStatus('CONNECTED');
-        addLog('Successfully connected to ESP32!', 'SYS');
+        addLog('Successfully connected to laptop server!', 'SYS');
       };
 
       ws.onclose = () => {
@@ -223,12 +227,12 @@ export default function App() {
           <Text style={styles.panelTitle}>1. WebSocket Link</Text>
           <View style={styles.connectionRow}>
             <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>ESP32 IP Address</Text>
+              <Text style={styles.inputLabel}>Server IP Address</Text>
               <TextInput
                 style={styles.input}
                 value={ip}
                 onChangeText={setIp}
-                placeholder="192.168.4.1"
+                placeholder="192.168.1.100"
                 placeholderTextColor="#5A626A"
                 keyboardType="numeric"
                 autoCapitalize="none"

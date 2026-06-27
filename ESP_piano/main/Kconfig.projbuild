@@ -1,0 +1,8 @@
+menu "Podles DSP Piano Config"
+    config SERVER_URI
+        string "WebSocket server URI"
+        default "ws://192.168.1.100:8000/stream"
+        help
+            URI of the laptop server that receives the PCM stream.
+            Format: ws://HOST:PORT/PATH
+endmenu
