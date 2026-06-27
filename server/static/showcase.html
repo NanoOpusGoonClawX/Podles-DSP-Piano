@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Podles DSP Piano — Live Showcase</title>
+<style>
+  :root {
+    --bg: #f4ecd8; --panel: #fbf6ea; --border: #d8cbac; --txt: #2b2118;
+    --muted: #8a7a5c; --green: #3f7d4f; --amber: #b07a2a; --ink: #2b2118;
+    --crimson: #9e1b32; --crimson-soft: #c0334a; --accent: #9e1b32;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt); font-family: -apple-system, "Segoe UI", system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 20px; font-weight: 650; margin-bottom: 2px; }
+  h1 .v { color: var(--crimson); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 10px; }
+
+  /* pipeline */
+  .pipeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stage { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 120px; }
+  .stage .lbl { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+  .stage .val { font-weight: 600; font-size: 13px; }
+  .stage.live { border-color: var(--crimson); box-shadow: 0 0 0 1px var(--crimson); }
+  .arrow { color: var(--muted); font-size: 18px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #c9b896; }
+  .dot.on { background: var(--crimson); box-shadow: 0 0 6px var(--crimson-soft); }
+
+  /* piano */
+  .piano-wrap { overflow-x: auto; padding: 6px 0; }
+  .piano { position: relative; height: 130px; display: inline-flex; }
+  .key { position: relative; }
+  .white { width: 26px; height: 130px; background: #fffdf7; border: 1px solid #b8a982; border-radius: 0 0 4px 4px; }
+  .black { width: 16px; height: 80px; background: #3a2f22; border: 1px solid #241b12; border-radius: 0 0 3px 3px;
+           margin: 0 -8px; z-index: 2; }
+  .white.active { background: var(--crimson); box-shadow: 0 0 12px var(--crimson-soft); }
+  .black.active { background: var(--crimson); box-shadow: 0 0 12px var(--crimson-soft); }
+  .white.hint { background: var(--amber); }
+  .black.hint { background: var(--amber); }
+
+  /* log */
+  .log { font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; height: 280px; overflow-y: auto; line-height: 1.6; }
+  .log .ev { padding: 2px 4px; border-radius: 3px; }
+  .log .note_on { color: var(--crimson); }
+  .log .page { color: var(--ink); font-weight: 700; }
+  .log .done { color: var(--crimson); font-weight: 700; }
+  .log .sys { color: var(--muted); }
+
+  .stat { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .stat:last-child { border: 0; }
+  .stat .n { font-weight: 700; color: var(--crimson); }
+  .score-bar { height: 10px; background: #e6dabf; border-radius: 5px; overflow: hidden; margin-top: 6px; }
+  .score-fill { height: 100%; width: 0%; background: var(--crimson); transition: width .3s; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e6dabf; color: var(--ink); }
+  .now-playing { font-size: 32px; font-weight: 700; text-align: center; padding: 14px; color: var(--crimson); min-height: 64px; }
+</style>
+</head>
+<body>
+  <h1>Podles DSP Piano <span class="v">— Live Showcase</span></h1>
+  <div class="sub">Virtual venue: synthesized piano → Python server (BasicPitch / ONNX-CPU) → Node score tracker → this GUI. No hardware.</div>
+
+  <div class="pipeline" id="pipeline">
+    <div class="stage" id="st-source"><span class="lbl">Source</span><span class="val">🎹 Synth Piano</span></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="st-esp"><span class="lbl">Capture (virtual ESP32)</span><span class="val"><span class="dot" id="d-esp"></span>16kHz PCM</span></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="st-py"><span class="lbl">Python :8000</span><span class="val"><span class="dot" id="d-py"></span>BasicPitch</span></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="st-node"><span class="lbl">Node :8080</span><span class="val"><span class="dot" id="d-node"></span>Score Tracker</span></div>
+    <span class="arrow">→</span>
+    <div class="stage live" id="st-gui"><span class="lbl">This GUI</span><span class="val"><span class="dot on"></span>Live</span></div>
+  </div>
+
+  <div class="now-playing" id="nowPlaying">—</div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Live Piano (detected notes)</h2>
+      <div class="piano-wrap"><div class="piano" id="piano"></div></div>
+      <h2 style="margin-top:16px">Event Stream</h2>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="panel">
+      <h2>Connection</h2>
+      <div class="stat"><span>Node WS</span><span class="badge" id="wsState">connecting…</span></div>
+      <h2 style="margin-top:14px">Counters</h2>
+      <div class="stat"><span>Notes detected</span><span class="n" id="cNotes">0</span></div>
+      <div class="stat"><span>MIDI packets</span><span class="n" id="cMidi">0</span></div>
+      <div class="stat"><span>Page turns</span><span class="n" id="cPage">0</span></div>
+      <div class="stat"><span>Score complete</span><span class="n" id="cDone">No</span></div>
+      <h2 style="margin-top:14px">Score Progress</h2>
+      <div class="score-bar"><div class="score-fill" id="scoreFill"></div></div>
+      <div class="stat" style="margin-top:8px"><span>Page</span><span class="n" id="curPage">1</span></div>
+    </div>
+  </div>
+
+<script>
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function midiName(m){ return NOTE_NAMES[m%12] + (Math.floor(m/12)-1); }
+function isBlack(m){ return [1,3,6,8,10].includes(m%12); }
+
+// build piano A0(21)..C8(108)
+const piano = document.getElementById('piano');
+const keyEls = {};
+for (let m=21; m<=108; m++){
+  const k = document.createElement('div');
+  k.className = 'key ' + (isBlack(m)?'black':'white');
+  k.dataset.midi = m;
+  piano.appendChild(k);
+  keyEls[m]=k;
+}
+function light(midi, cls){
+  const k = keyEls[midi]; if(!k) return;
+  k.classList.add(cls);
+  setTimeout(()=>k.classList.remove(cls), 450);
+}
+
+let cNotes=0, cMidi=0, cPage=0;
+const $ = id => document.getElementById(id);
+function logEv(txt, cls){
+  const d=document.createElement('div'); d.className='ev '+cls; d.textContent=txt;
+  const l=$('log'); l.appendChild(d); l.scrollTop=l.scrollHeight;
+  while(l.children.length>120) l.removeChild(l.firstChild);
+}
+
+function connect(){
+  const ws = new WebSocket('ws://' + location.hostname + ':8080');
+  ws.binaryType='arraybuffer';
+  ws.onopen = ()=>{ $('wsState').textContent='connected'; $('wsState').style.color='var(--green)'; $('d-node').classList.add('on'); logEv('[sys] connected to Node :8080','sys'); };
+  ws.onclose= ()=>{ $('wsState').textContent='disconnected'; $('wsState').style.color='var(--red)'; setTimeout(connect,1500); };
+  ws.onmessage = (e)=>{
+    if (e.data instanceof ArrayBuffer){
+      const b=new Uint8Array(e.data);
+      if (b.length===3 && (b[0]&0xf0)===0x90 && b[2]>0){
+        const midi=b[1]; cMidi++; $('cMidi').textContent=cMidi;
+        $('d-py').classList.add('on'); $('d-esp').classList.add('on');
+        light(midi,'active'); $('nowPlaying').textContent=midiName(midi);
+        logEv(`[midi] note_on  ${midiName(midi)} (${midi}) vel=${b[2]}`, 'note_on');
+        cNotes++; $('cNotes').textContent=cNotes;
+      }
+      return;
+    }
+    try{
+      const d=JSON.parse(e.data);
+      if (d.type==='NOTE_PLAYED'){ cNotes++; $('cNotes').textContent=cNotes; if(d.midi){light(d.midi,'active'); $('nowPlaying').textContent=midiName(d.midi);} logEv(`[note] ${d.note||midiName(d.midi)} (${d.midi})`,'note_on'); }
+      else if (d.type==='PAGE_TURN'){ cPage++; $('cPage').textContent=cPage; $('curPage').textContent=d.pageNumber||(cPage+1); logEv(`[PAGE TURN] → page ${d.pageNumber}`,'page'); }
+      else if (d.type==='SCORE_COMPLETED'){ $('cDone').textContent='Yes'; $('scoreFill').style.width='100%'; logEv('[SCORE COMPLETED]','done'); }
+    }catch(err){}
+  };
+}
+connect();
+</script>
+</body>
+</html>
