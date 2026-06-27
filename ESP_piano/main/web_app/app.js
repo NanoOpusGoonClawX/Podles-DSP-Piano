@@ -5,7 +5,8 @@ let pdfDoc = null;
 let currentPageNum = 1;
 let pdfCanvas = null;
 let pdfContext = null;
-let currentSongNotes = []; // Unified format: [{time: seconds, midi: number, note: name, dur: seconds, hand: 'right'|'left'}]
+let currentSongPages = []; // Multi-page structure: [{pageNumber: number, duration: number, notes: [...]}]
+let currentSongNotes = []; // Flattened format with absolute time: [{time: seconds, midi: number, note: name, dur: seconds, hand: 'right'|'left', page: number, pageTime: number}]
 let isPlaying = false;
 let playStartTime = 0;
 let playbackTimer = null;
@@ -49,7 +50,20 @@ function addLog(message, type = "info") {
 
 function updateJsonPanel() {
     const jsonPanel = document.getElementById('json-panel');
-    jsonPanel.innerHTML = JSON.stringify({ notes: currentSongNotes }, null, 2);
+    jsonPanel.innerHTML = JSON.stringify({
+        songTitle: fileNameText ? (fileNameText.textContent || "Unknown Song") : "Unknown Song",
+        totalPages: pdfDoc ? pdfDoc.numPages : 1,
+        pages: currentSongPages.map(page => ({
+            pageNumber: page.pageNumber,
+            duration: parseFloat((page.duration || 0).toFixed(2)),
+            notes: page.notes.map(n => ({
+                time: parseFloat(n.time.toFixed(3)),
+                note: n.note,
+                dur: parseFloat((n.dur || 0.5).toFixed(3)),
+                hand: n.hand || 'right'
+            }))
+        }))
+    }, null, 2);
 }
 
 // Initialise PDF.js
@@ -65,6 +79,7 @@ const btnClearPdf = document.getElementById('btn-clear-pdf');
 const geminiKeyInput = document.getElementById('gemini-key');
 const btnToggleKeyVisibility = document.getElementById('toggle-key-visibility');
 const btnParsePdf = document.getElementById('btn-parse-pdf');
+const btnParseAllPdf = document.getElementById('btn-parse-all-pdf');
 const btnPlayPause = document.getElementById('btn-play-pause');
 const btnStop = document.getElementById('btn-stop');
 const playIconState = document.getElementById('play-icon-state');
@@ -260,6 +275,7 @@ btnClearPdf.addEventListener('click', () => {
     pdfRenderCanvas.style.display = 'none';
     pdfPagination.style.display = 'none';
     btnParsePdf.disabled = true;
+    btnParseAllPdf.disabled = true;
     addLog("PDF file cleared.");
 });
 
@@ -290,6 +306,7 @@ async function handlePdfSelection(file) {
                 pdfRenderCanvas.style.display = 'block';
                 pdfPagination.style.display = 'flex';
                 btnParsePdf.disabled = false;
+                btnParseAllPdf.disabled = false;
                 
                 await renderPdfPage(currentPageNum);
                 hideOverlay();
@@ -353,159 +370,9 @@ function hideOverlay() {
     pdfLoadingOverlay.classList.remove('active');
 }
 
-// Gemini API OMR Transcription
-btnParsePdf.addEventListener('click', async () => {
-    const apiKey = geminiKeyInput.value.trim();
-    const fileName = (fileNameText.textContent || "").toLowerCase();
-
-    if (!pdfRenderCanvas) return;
-
-    // Check if we should run in Mock / Demo Mode
-    const isMockMode = !apiKey || !apiKey.startsWith("AIzaSy") || apiKey.length < 10;
-
-    if (isMockMode) {
-        showOverlay("Simulating AI OMR Transcription...");
-        addLog("No valid API Key detected. Running in Offline Mock/Demo Mode.");
-        
-        addLog("Rendering page 1 to high-resolution snapshot...");
-        await new Promise(r => setTimeout(r, 600));
-
-        addLog("Preparing image payload and prompt context...");
-        await new Promise(r => setTimeout(r, 600));
-
-        addLog("Sending image request to Gemini API (gemini-2.5-flash)...");
-        addLog("Waiting for structured JSON OMR response...");
-        await new Promise(r => setTimeout(r, 1200));
-
-        let mockNotes = [];
-        let detectedSongName = "Default Scale";
-
-        if (fileName.includes("joy") || fileName.includes("beethoven") || fileName.includes("ode")) {
-            detectedSongName = "Beethoven's 'Ode to Joy'";
-            mockNotes = [
-                // Phrase 1 (Right Hand)
-                { time: 0.0, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 0.5, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 1.0, note: "F4", dur: 0.4, hand: 'right' },
-                { time: 1.5, note: "G4", dur: 0.4, hand: 'right' },
-                { time: 2.0, note: "G4", dur: 0.4, hand: 'right' },
-                { time: 2.5, note: "F4", dur: 0.4, hand: 'right' },
-                { time: 3.0, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 3.5, note: "D4", dur: 0.4, hand: 'right' },
-                { time: 4.0, note: "C4", dur: 0.4, hand: 'right' },
-                { time: 4.5, note: "C4", dur: 0.4, hand: 'right' },
-                { time: 5.0, note: "D4", dur: 0.4, hand: 'right' },
-                { time: 5.5, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 6.0, note: "E4", dur: 0.6, hand: 'right' },
-                { time: 6.5, note: "D4", dur: 0.2, hand: 'right' },
-                { time: 6.8, note: "D4", dur: 0.8, hand: 'right' },
-            
-                // Left hand accompaniment (Chords)
-                { time: 0.0, note: "C3", dur: 1.8, hand: 'left' },
-                { time: 0.0, note: "E3", dur: 1.8, hand: 'left' },
-                { time: 2.0, note: "G3", dur: 1.8, hand: 'left' },
-                { time: 2.0, note: "D3", dur: 1.8, hand: 'left' },
-                { time: 4.0, note: "C3", dur: 1.8, hand: 'left' },
-                { time: 4.0, note: "E3", dur: 1.8, hand: 'left' },
-                { time: 6.0, note: "G3", dur: 1.5, hand: 'left' },
-                { time: 6.0, note: "B2", dur: 1.5, hand: 'left' },
-            
-                // Phrase 2 (Right Hand)
-                { time: 7.6, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 8.1, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 8.6, note: "F4", dur: 0.4, hand: 'right' },
-                { time: 9.1, note: "G4", dur: 0.4, hand: 'right' },
-                { time: 9.6, note: "G4", dur: 0.4, hand: 'right' },
-                { time: 10.1, note: "F4", dur: 0.4, hand: 'right' },
-                { time: 10.6, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 11.1, note: "D4", dur: 0.4, hand: 'right' },
-                { time: 11.6, note: "C4", dur: 0.4, hand: 'right' },
-                { time: 12.1, note: "C4", dur: 0.4, hand: 'right' },
-                { time: 12.6, note: "D4", dur: 0.4, hand: 'right' },
-                { time: 13.1, note: "E4", dur: 0.4, hand: 'right' },
-                { time: 13.6, note: "D4", dur: 0.6, hand: 'right' },
-                { time: 14.1, note: "C4", dur: 0.2, hand: 'right' },
-                { time: 14.4, note: "C4", dur: 0.8, hand: 'right' },
-            
-                // Left hand Phrase 2
-                { time: 7.6, note: "C3", dur: 1.8, hand: 'left' },
-                { time: 7.6, note: "E3", dur: 1.8, hand: 'left' },
-                { time: 9.6, note: "G3", dur: 1.8, hand: 'left' },
-                { time: 9.6, note: "D3", dur: 1.8, hand: 'left' },
-                { time: 11.6, note: "C3", dur: 1.8, hand: 'left' },
-                { time: 11.6, note: "E3", dur: 1.8, hand: 'left' },
-                { time: 13.6, note: "G3", dur: 0.8, hand: 'left' },
-                { time: 14.1, note: "C3", dur: 1.0, hand: 'left' }
-            ];
-        } else if (fileName.includes("elise") || fileName.includes("fur") || fileName.includes("bagatelle")) {
-            detectedSongName = "Beethoven's 'Für Elise'";
-            mockNotes = [
-                // Theme (Right Hand)
-                { time: 0.0, note: "E5", dur: 0.25, hand: 'right' },
-                { time: 0.25, note: "D#5", dur: 0.25, hand: 'right' },
-                { time: 0.5, note: "E5", dur: 0.25, hand: 'right' },
-                { time: 0.75, note: "D#5", dur: 0.25, hand: 'right' },
-                { time: 1.0, note: "E5", dur: 0.25, hand: 'right' },
-                { time: 1.25, note: "B4", dur: 0.25, hand: 'right' },
-                { time: 1.5, note: "D5", dur: 0.25, hand: 'right' },
-                { time: 1.75, note: "C5", dur: 0.25, hand: 'right' },
-                
-                // Resolution part 1
-                { time: 2.0, note: "A4", dur: 0.5, hand: 'right' },
-                { time: 2.0, note: "A2", dur: 0.5, hand: 'left' },
-                { time: 2.3, note: "E3", dur: 0.5, hand: 'left' },
-                { time: 2.6, note: "A3", dur: 0.5, hand: 'left' },
-                
-                { time: 2.9, note: "C4", dur: 0.25, hand: 'right' },
-                { time: 3.15, note: "E4", dur: 0.25, hand: 'right' },
-                { time: 3.4, note: "A4", dur: 0.25, hand: 'right' },
-                
-                // Resolution part 2
-                { time: 3.65, note: "B4", dur: 0.5, hand: 'right' },
-                { time: 3.65, note: "E2", dur: 0.5, hand: 'left' },
-                { time: 3.95, note: "E3", dur: 0.5, hand: 'left' },
-                { time: 4.25, note: "G#3", dur: 0.5, hand: 'left' },
-                
-                { time: 4.55, note: "E4", dur: 0.25, hand: 'right' },
-                { time: 4.8, note: "G#4", dur: 0.25, hand: 'right' },
-                { time: 5.05, note: "B4", dur: 0.25, hand: 'right' },
-                
-                // Resolution part 3
-                { time: 5.3, note: "C5", dur: 0.5, hand: 'right' },
-                { time: 5.3, note: "A2", dur: 0.5, hand: 'left' },
-                { time: 5.6, note: "E3", dur: 0.5, hand: 'left' },
-                { time: 5.9, note: "A3", dur: 0.5, hand: 'left' }
-            ];
-        } else {
-            detectedSongName = "melody scale";
-            mockNotes = [
-                { time: 0.0, note: "C4", dur: 0.3, hand: 'right' },
-                { time: 0.3, note: "D4", dur: 0.3, hand: 'right' },
-                { time: 0.6, note: "E4", dur: 0.3, hand: 'right' },
-                { time: 0.9, note: "F4", dur: 0.3, hand: 'right' },
-                { time: 1.2, note: "G4", dur: 0.3, hand: 'right' },
-                { time: 1.5, note: "A4", dur: 0.3, hand: 'right' },
-                { time: 1.8, note: "B4", dur: 0.3, hand: 'right' },
-                { time: 2.1, note: "C5", dur: 0.6, hand: 'right' },
-                
-                // Chords on left hand
-                { time: 0.0, note: "C3", dur: 1.0, hand: 'left' },
-                { time: 0.0, note: "E3", dur: 1.0, hand: 'left' },
-                { time: 1.2, note: "F3", dur: 1.0, hand: 'left' },
-                { time: 1.2, note: "A3", dur: 1.0, hand: 'left' },
-                { time: 2.1, note: "C3", dur: 1.0, hand: 'left' },
-                { time: 2.1, note: "G3", dur: 1.0, hand: 'left' }
-            ];
-        }
-
-        processParsedNotes(mockNotes);
-        addLog(`OMR Transcription complete! Detected ${detectedSongName} (${mockNotes.length} note events).`, "success");
-        hideOverlay();
-        return;
-    }
-
-    showOverlay("Sending page to Gemini OMR transcription...");
-    addLog("Exporting page snapshot as base64 JPEG...");
+// Gemini API OMR Transcription helpers
+async function callGeminiTranscriptionForCurrentPage(apiKey) {
+    if (!pdfRenderCanvas) throw new Error("No canvas to transcribe");
     
     const base64Image = pdfRenderCanvas.toDataURL('image/jpeg', 0.85).split(',')[1];
     
@@ -520,7 +387,7 @@ btnParsePdf.addEventListener('click', async () => {
                         }
                     },
                     {
-                        text: "Transcribe all piano notes on this sheet music page into a chronological list of note events. Output a JSON object containing a 'notes' array, where each item has: 'time' (seconds from start of page), 'note' (scientific pitch notation like C4, D#5, Bb3), and 'dur' (duration in seconds). Map notes in the treble clef to hand: 'right', and bass clef notes to hand: 'left'."
+                        text: "Transcribe all piano notes on this sheet music page into a chronological list of note events. Output a JSON object containing: 1. 'duration' (a number representing the total playing duration of this page in seconds, estimated from the tempo/measure layout), 2. a 'notes' array, where each item has: 'time' (seconds from start of page), 'note' (scientific pitch notation like C4, D#5, Bb3), and 'dur' (duration in seconds). Map notes in the treble clef to hand: 'right', and bass clef notes to hand: 'left'."
                     }
                 ]
             }
@@ -530,6 +397,7 @@ btnParsePdf.addEventListener('click', async () => {
             responseSchema: {
                 type: "OBJECT",
                 properties: {
+                    duration: { type: "NUMBER" },
                     notes: {
                         type: "ARRAY",
                         items: {
@@ -548,36 +416,282 @@ btnParsePdf.addEventListener('click', async () => {
             }
         }
     };
-
-    addLog("Sending image request to Gemini API (gemini-2.5-flash)...");
     
-    try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(requestBody)
-        });
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+    });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error?.message || "API Error");
-        }
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || "API Error");
+    }
 
-        const data = await response.json();
-        const jsonText = data.candidates[0].content.parts[0].text;
-        const result = JSON.parse(jsonText);
-        
-        if (result && result.notes) {
-            processParsedNotes(result.notes);
-            addLog(`Successfully transcribed ${result.notes.length} note events!`, "success");
+    const data = await response.json();
+    const jsonText = data.candidates[0].content.parts[0].text;
+    return JSON.parse(jsonText);
+}
+
+function getMockPageData(pageNum) {
+    const fileName = (fileNameText.textContent || "").toLowerCase();
+    let notes = [];
+    let duration = 8.0;
+    
+    if (fileName.includes("joy") || fileName.includes("beethoven") || fileName.includes("ode")) {
+        duration = 8.0;
+        if (pageNum === 1) {
+            notes = [
+                // Phrase 1 (Right Hand)
+                { time: 0.0, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 0.5, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 1.0, note: "F4", dur: 0.4, hand: 'right' },
+                { time: 1.5, note: "G4", dur: 0.4, hand: 'right' },
+                { time: 2.0, note: "G4", dur: 0.4, hand: 'right' },
+                { time: 2.5, note: "F4", dur: 0.4, hand: 'right' },
+                { time: 3.0, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 3.5, note: "D4", dur: 0.4, hand: 'right' },
+                { time: 4.0, note: "C4", dur: 0.4, hand: 'right' },
+                { time: 4.5, note: "C4", dur: 0.4, hand: 'right' },
+                { time: 5.0, note: "D4", dur: 0.4, hand: 'right' },
+                { time: 5.5, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 6.0, note: "E4", dur: 0.6, hand: 'right' },
+                { time: 6.5, note: "D4", dur: 0.2, hand: 'right' },
+                { time: 6.8, note: "D4", dur: 0.8, hand: 'right' },
+                // Left hand accompaniment (Chords)
+                { time: 0.0, note: "C3", dur: 1.8, hand: 'left' },
+                { time: 0.0, note: "E3", dur: 1.8, hand: 'left' },
+                { time: 2.0, note: "G3", dur: 1.8, hand: 'left' },
+                { time: 2.0, note: "D3", dur: 1.8, hand: 'left' },
+                { time: 4.0, note: "C3", dur: 1.8, hand: 'left' },
+                { time: 4.0, note: "E3", dur: 1.8, hand: 'left' },
+                { time: 6.0, note: "G3", dur: 1.5, hand: 'left' },
+                { time: 6.0, note: "B2", dur: 1.5, hand: 'left' }
+            ];
         } else {
-            addLog("Received empty transcription format.", "error");
+            notes = [
+                // Phrase 2 (Right Hand)
+                { time: 0.0, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 0.5, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 1.0, note: "F4", dur: 0.4, hand: 'right' },
+                { time: 1.5, note: "G4", dur: 0.4, hand: 'right' },
+                { time: 2.0, note: "G4", dur: 0.4, hand: 'right' },
+                { time: 2.5, note: "F4", dur: 0.4, hand: 'right' },
+                { time: 3.0, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 3.5, note: "D4", dur: 0.4, hand: 'right' },
+                { time: 4.0, note: "C4", dur: 0.4, hand: 'right' },
+                { time: 4.5, note: "C4", dur: 0.4, hand: 'right' },
+                { time: 5.0, note: "D4", dur: 0.4, hand: 'right' },
+                { time: 5.5, note: "E4", dur: 0.4, hand: 'right' },
+                { time: 6.0, note: "D4", dur: 0.6, hand: 'right' },
+                { time: 6.5, note: "C4", dur: 0.2, hand: 'right' },
+                { time: 6.8, note: "C4", dur: 0.8, hand: 'right' },
+                // Left hand Phrase 2
+                { time: 0.0, note: "C3", dur: 1.8, hand: 'left' },
+                { time: 0.0, note: "E3", dur: 1.8, hand: 'left' },
+                { time: 2.0, note: "G3", dur: 1.8, hand: 'left' },
+                { time: 2.0, note: "D3", dur: 1.8, hand: 'left' },
+                { time: 4.0, note: "C3", dur: 1.8, hand: 'left' },
+                { time: 4.0, note: "E3", dur: 1.8, hand: 'left' },
+                { time: 6.0, note: "G3", dur: 0.8, hand: 'left' },
+                { time: 6.5, note: "C3", dur: 1.0, hand: 'left' }
+            ];
         }
-        
+    } else if (fileName.includes("elise") || fileName.includes("fur") || fileName.includes("bagatelle")) {
+        duration = 6.0;
+        if (pageNum === 1) {
+            notes = [
+                // Theme (Right Hand)
+                { time: 0.0, note: "E5", dur: 0.25, hand: 'right' },
+                { time: 0.25, note: "D#5", dur: 0.25, hand: 'right' },
+                { time: 0.5, note: "E5", dur: 0.25, hand: 'right' },
+                { time: 0.75, note: "D#5", dur: 0.25, hand: 'right' },
+                { time: 1.0, note: "E5", dur: 0.25, hand: 'right' },
+                { time: 1.25, note: "B4", dur: 0.25, hand: 'right' },
+                { time: 1.5, note: "D5", dur: 0.25, hand: 'right' },
+                { time: 1.75, note: "C5", dur: 0.25, hand: 'right' },
+                // Resolution part 1
+                { time: 2.0, note: "A4", dur: 0.5, hand: 'right' },
+                { time: 2.0, note: "A2", dur: 0.5, hand: 'left' },
+                { time: 2.3, note: "E3", dur: 0.5, hand: 'left' },
+                { time: 2.6, note: "A3", dur: 0.5, hand: 'left' },
+                { time: 2.9, note: "C4", dur: 0.25, hand: 'right' },
+                { time: 3.15, note: "E4", dur: 0.25, hand: 'right' },
+                { time: 3.4, note: "A4", dur: 0.25, hand: 'right' },
+                // Resolution part 2
+                { time: 3.65, note: "B4", dur: 0.5, hand: 'right' },
+                { time: 3.65, note: "E2", dur: 0.5, hand: 'left' },
+                { time: 3.95, note: "E3", dur: 0.5, hand: 'left' },
+                { time: 4.25, note: "G#3", dur: 0.5, hand: 'left' }
+            ];
+        } else {
+            notes = [
+                { time: 0.0, note: "E4", dur: 0.25, hand: 'right' },
+                { time: 0.25, note: "G#4", dur: 0.25, hand: 'right' },
+                { time: 0.5, note: "B4", dur: 0.25, hand: 'right' },
+                { time: 0.75, note: "C5", dur: 0.5, hand: 'right' },
+                { time: 0.75, note: "A2", dur: 0.5, hand: 'left' },
+                { time: 1.05, note: "E3", dur: 0.5, hand: 'left' },
+                { time: 1.35, note: "A3", dur: 0.5, hand: 'left' }
+            ];
+        }
+    } else {
+        duration = 4.0;
+        notes = [
+            { time: 0.0, note: "C4", dur: 0.3, hand: 'right' },
+            { time: 0.3, note: "D4", dur: 0.3, hand: 'right' },
+            { time: 0.6, note: "E4", dur: 0.3, hand: 'right' },
+            { time: 0.9, note: "F4", dur: 0.3, hand: 'right' },
+            { time: 1.2, note: "G4", dur: 0.3, hand: 'right' },
+            { time: 1.5, note: "A4", dur: 0.3, hand: 'right' },
+            { time: 1.8, note: "B4", dur: 0.3, hand: 'right' },
+            { time: 2.1, note: "C5", dur: 0.6, hand: 'right' }
+        ];
+    }
+    
+    return { duration, notes };
+}
+
+function flattenPages() {
+    currentSongNotes = [];
+    let timeOffset = 0.0;
+    
+    const sortedPages = [...currentSongPages].filter(Boolean).sort((a, b) => a.pageNumber - b.pageNumber);
+    
+    sortedPages.forEach(page => {
+        page.notes.forEach(item => {
+            const parsedMidi = item.midi || parseNoteToMidi(item.note);
+            if (parsedMidi !== null && parsedMidi >= 36 && parsedMidi <= 96) {
+                currentSongNotes.push({
+                    time: timeOffset + item.time,
+                    pageTime: item.time,
+                    page: page.pageNumber,
+                    midi: parsedMidi,
+                    note: item.note || getNoteName(parsedMidi),
+                    dur: item.dur || 0.5,
+                    hand: item.hand || 'right'
+                });
+            }
+        });
+        timeOffset += page.duration || 10.0;
+    });
+    
+    currentSongNotes.sort((a, b) => a.time - b.time);
+    
+    updateJsonPanel();
+    btnPlayPause.disabled = false;
+    btnStop.disabled = false;
+}
+
+// Transcribe a single page (the current one)
+btnParsePdf.addEventListener('click', async () => {
+    const apiKey = geminiKeyInput.value.trim();
+    const isMockMode = !apiKey || !apiKey.startsWith("AIzaSy") || apiKey.length < 10;
+
+    if (!pdfRenderCanvas) return;
+
+    showOverlay("Transcribing current page...");
+    addLog(`Transcribing current Page ${currentPageNum}...`);
+
+    try {
+        let pageData;
+        if (isMockMode) {
+            addLog("No valid API Key detected. Running in Offline Mock/Demo Mode.");
+            await new Promise(r => setTimeout(r, 1200));
+            pageData = getMockPageData(currentPageNum);
+        } else {
+            pageData = await callGeminiTranscriptionForCurrentPage(apiKey);
+        }
+
+        let pageDuration = pageData.duration;
+        if (!pageDuration || pageDuration <= 0) {
+            pageDuration = Math.max(...pageData.notes.map(n => n.time + (n.dur || 0.5)), 0) + 2.0;
+        }
+
+        // Make sure currentSongPages has slots up to currentPageNum
+        while (currentSongPages.length < currentPageNum) {
+            currentSongPages.push({
+                pageNumber: currentSongPages.length + 1,
+                duration: 10.0,
+                notes: []
+            });
+        }
+
+        currentSongPages[currentPageNum - 1] = {
+            pageNumber: currentPageNum,
+            duration: pageDuration,
+            notes: pageData.notes
+        };
+
+        flattenPages();
+        addLog(`Page ${currentPageNum} transcribed successfully. Found ${pageData.notes.length} note events.`, "success");
     } catch (err) {
-        addLog(`Gemini API Error: ${err.message}`, "error");
+        addLog(`Transcription failed: ${err.message}`, "error");
+        console.error(err);
+    } finally {
+        hideOverlay();
+    }
+});
+
+// Transcribe all pages in sequence
+btnParseAllPdf.addEventListener('click', async () => {
+    if (!pdfDoc) {
+        addLog("No PDF loaded.", "error");
+        return;
+    }
+
+    const apiKey = geminiKeyInput.value.trim();
+    const isMockMode = !apiKey || !apiKey.startsWith("AIzaSy") || apiKey.length < 10;
+    const totalPages = pdfDoc.numPages;
+
+    currentSongPages = []; // Reset current pages
+    addLog(`Starting batch transcription for all ${totalPages} pages...`);
+
+    try {
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            showOverlay(`Rendering Page ${pageNum} of ${totalPages}...`);
+            currentPageNum = pageNum;
+            currentPageNumSpan.textContent = pageNum;
+            await renderPdfPage(pageNum);
+
+            showOverlay(`Transcribing Page ${pageNum} of ${totalPages}...`);
+            addLog(`Parsing Page ${pageNum}/${totalPages}...`);
+
+            let pageData;
+            if (isMockMode) {
+                addLog(`(Mock Mode) transcribing page ${pageNum}...`);
+                await new Promise(r => setTimeout(r, 1000));
+                pageData = getMockPageData(pageNum);
+            } else {
+                pageData = await callGeminiTranscriptionForCurrentPage(apiKey);
+            }
+
+            let pageDuration = pageData.duration;
+            if (!pageDuration || pageDuration <= 0) {
+                pageDuration = Math.max(...pageData.notes.map(n => n.time + (n.dur || 0.5)), 0) + 2.0;
+            }
+
+            currentSongPages.push({
+                pageNumber: pageNum,
+                duration: pageDuration,
+                notes: pageData.notes
+            });
+
+            addLog(`Page ${pageNum} transcribed. Found ${pageData.notes.length} notes.`, "success");
+        }
+
+        flattenPages();
+        addLog(`Batch transcription complete! Unified ${currentSongNotes.length} notes across ${totalPages} pages.`, "success");
+
+        // Return to Page 1
+        currentPageNum = 1;
+        currentPageNumSpan.textContent = 1;
+        await renderPdfPage(1);
+
+    } catch (err) {
+        addLog(`Batch transcription failed: ${err.message}`, "error");
         console.error(err);
     } finally {
         hideOverlay();
@@ -604,22 +718,25 @@ function parseNoteToMidi(noteName) {
 }
 
 function processParsedNotes(notesList) {
-    currentSongNotes = notesList.map(item => {
+    const processed = notesList.map(item => {
         return {
             time: item.time,
-            midi: parseNoteToMidi(item.note),
-            note: item.note,
+            midi: item.midi || parseNoteToMidi(item.note),
+            note: item.note || getNoteName(item.midi),
             dur: item.dur || 0.5,
             hand: item.hand || 'right'
         };
     }).filter(note => note.midi !== null && note.midi >= 36 && note.midi <= 96);
     
-    // Sort chronologically
-    currentSongNotes.sort((a, b) => a.time - b.time);
+    const maxTime = Math.max(...processed.map(n => n.time + n.dur), 0);
     
-    updateJsonPanel();
-    btnPlayPause.disabled = false;
-    btnStop.disabled = false;
+    currentSongPages = [{
+        pageNumber: 1,
+        duration: maxTime + 2.0,
+        notes: processed
+    }];
+    
+    flattenPages();
     addLog(`Song loaded: ${currentSongNotes.length} notes playable.`);
 }
 
@@ -713,7 +830,16 @@ function startPlayback() {
     lucide.createIcons();
     addLog("Started local playback + live ESP32 WS streaming.");
     
+    // Reset to Page 1 on start of playback if sheet music is loaded
+    if (pdfDoc && currentPageNum !== 1) {
+        currentPageNum = 1;
+        currentPageNumSpan.textContent = 1;
+        renderPdfPage(1);
+    }
+    
     activeTimeouts = [];
+    
+    // 1. Schedule all notes
     currentSongNotes.forEach(note => {
         // Schedule sound triggers
         const triggerTimeMs = note.time * 1000;
@@ -732,6 +858,28 @@ function startPlayback() {
         }, offTimeMs);
         
         activeTimeouts.push(noteOnId, noteOffId);
+    });
+    
+    // 2. Schedule page turns based on page durations
+    let accumTime = 0.0;
+    currentSongPages.forEach((page, idx) => {
+        const pageStartMs = accumTime * 1000;
+        const pageNum = page.pageNumber;
+        
+        // Only schedule page turn for subsequent pages
+        if (pageNum > 1) {
+            const pageTurnId = setTimeout(() => {
+                if (currentPageNum !== pageNum) {
+                    currentPageNum = pageNum;
+                    currentPageNumSpan.textContent = pageNum;
+                    renderPdfPage(pageNum);
+                    addLog(`Auto-turned sheet music to Page ${pageNum}`);
+                }
+            }, pageStartMs);
+            activeTimeouts.push(pageTurnId);
+        }
+        
+        accumTime += page.duration || 10.0;
     });
 }
 
