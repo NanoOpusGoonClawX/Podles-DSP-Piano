@@ -28,8 +28,12 @@ const WHITE_KEY_WIDTH = 46;
 const BLACK_KEY_WIDTH = 28;
 const KEYBOARD_HEIGHT = 160;
 
+// Architecture: connects to laptop server (ws://LAPTOP_IP:8000/notes)
+// The ESP32-S3 streams audio to the laptop; the laptop transcribes and
+// publishes note events. Enter your laptop's IP address in the field below.
+
 export default function App() {
-  const [ip, setIp] = useState<string>('localhost:8080');
+  const [ip, setIp] = useState<string>('192.168.1.100');
   const [status, setStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeKeys, setActiveKeys] = useState<{ [midi: number]: 'left' | 'right' | 'local' }>({});
@@ -88,252 +92,7 @@ export default function App() {
     };
   }, []);
 
-  const handleModeChange = (demo: boolean) => {
-    if (demo === isDemoMode) return;
-    
-    stopDemoSong();
-    setIsDemoMode(demo);
-    
-    if (demo) {
-      stopDemoSong();
-      setIsDemoMode(demo);
-      disconnectEsp();
-      setStatus('DISCONNECTED');
-      addLog('Switched to Mock Demo Mode (Offline Simulator)', 'SYS');
-    } else {
-      stopDemoSong();
-      setIsDemoMode(demo);
-      setStatus('DISCONNECTED');
-      addLog('Switched to Laptop Server Mode (Connecting to server)', 'SYS');
-    }
-  };
-
-  const handlePickPdf = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/pdf',
-        copyToCacheDirectory: true,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        
-        if (isDemoMode) {
-          setPdfUri(file.uri);
-          setPdfName(file.name);
-          setPdfCurrentPage(1);
-          setPdfPageCount(3);
-          setTranscribedData(null);
-          addLog(`Selected PDF loaded locally (Demo Mode): ${file.name}`, 'SYS');
-        } else {
-          addLog(`Selected PDF: ${file.name}. Uploading to laptop server...`, 'SYS');
-          
-          // Create FormData
-          const formData = new FormData();
-          formData.append('file', {
-            uri: Platform.OS === 'ios' ? file.uri.replace('file://', '') : file.uri,
-            name: file.name,
-            type: 'application/pdf'
-          } as any);
-
-          const response = await fetch(`http://${ip}/upload-pdf`, {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!response.ok) {
-            throw new Error(`Upload failed: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          addLog(`PDF Uploaded successfully!`, 'SYS');
-
-          const serverPdfUri = `http://${ip}${data.url}`;
-          setPdfUri(serverPdfUri);
-          setPdfName(file.name);
-          setPdfCurrentPage(1);
-          setPdfPageCount(3);
-          setTranscribedData(null);
-        }
-      }
-    } catch (err: any) {
-      addLog(`Error picking/uploading PDF: ${err.message}`, 'ERR');
-      console.error(err);
-    }
-  };
-
-  const handleLoadMockSheet = () => {
-    setPdfUri('MOCK_URI');
-    setPdfName('ode_to_joy_sheet_music.pdf');
-    setPdfCurrentPage(1);
-    setPdfPageCount(2);
-    setTranscribedData(null);
-    addLog('Loaded Mock PDF: ode_to_joy_sheet_music.pdf', 'SYS');
-  };
-
-  const handleTranscribePage = async () => {
-    if (!pdfUri) {
-      addLog('Please upload or load a PDF sheet first.', 'ERR');
-      return;
-    }
-
-    setIsTranscribing(true);
-
-    if (isDemoMode) {
-      addLog(`System: Sending page ${pdfCurrentPage} image to Gemini AI (Offline Simulation)...`, 'SYS');
-      setTimeout(() => {
-        setIsTranscribing(false);
-        
-        let notes: any[] = [];
-        if (pdfName && pdfName.includes('ode')) {
-          if (pdfCurrentPage === 1) {
-            notes = [
-              { time: 0.0, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 0.5, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 1.0, note: "F4", dur: 0.4, hand: 'right' },
-              { time: 1.5, note: "G4", dur: 0.4, hand: 'right' },
-              { time: 2.0, note: "G4", dur: 0.4, hand: 'right' },
-              { time: 2.5, note: "F4", dur: 0.4, hand: 'right' },
-              { time: 3.0, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 3.5, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 4.0, note: "C4", dur: 0.4, hand: 'right' },
-              { time: 4.5, note: "C4", dur: 0.4, hand: 'right' },
-              { time: 5.0, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 5.5, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 6.0, note: "E4", dur: 0.6, hand: 'right' },
-              { time: 6.5, note: "D4", dur: 0.2, hand: 'right' },
-              { time: 6.8, note: "D4", dur: 0.8, hand: 'right' }
-            ];
-          } else {
-            notes = [
-              { time: 0.0, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 0.5, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 1.0, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 1.5, note: "C4", dur: 0.4, hand: 'right' },
-              { time: 2.0, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 2.5, note: "E4", dur: 0.2, hand: 'right' },
-              { time: 2.7, note: "F4", dur: 0.2, hand: 'right' },
-              { time: 3.0, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 3.5, note: "C4", dur: 0.4, hand: 'right' },
-              { time: 4.0, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 4.5, note: "E4", dur: 0.2, hand: 'right' },
-              { time: 4.7, note: "F4", dur: 0.2, hand: 'right' },
-              { time: 5.0, note: "E4", dur: 0.4, hand: 'right' },
-              { time: 5.5, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 6.0, note: "C4", dur: 0.4, hand: 'right' },
-              { time: 6.5, note: "D4", dur: 0.4, hand: 'right' },
-              { time: 7.0, note: "G3", dur: 0.8, hand: 'right' }
-            ];
-          }
-        } else {
-          const pitches = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"];
-          notes = Array.from({ length: 10 }, (_, idx) => ({
-            time: idx * 0.8,
-            note: pitches[Math.floor(Math.random() * pitches.length)],
-            dur: 0.5,
-            hand: Math.random() > 0.5 ? 'right' : 'left'
-          }));
-        }
-
-        const responseObj = {
-          scoreId: pdfName || "transcribed-sheet",
-          pageNumber: pdfCurrentPage,
-          duration: 8.0,
-          notes: notes
-        };
-
-        setTranscribedData(responseObj);
-        addLog(`[Gemini AI] Transcribed Page ${pdfCurrentPage} successfully!`, 'SYS');
-        addLog(`OMR Output:\n${JSON.stringify(responseObj, null, 2)}`, 'WS_RX');
-      }, 1500);
-    } else {
-      addLog(`System: Requesting page ${pdfCurrentPage} transcription from laptop server...`, 'SYS');
-      try {
-        const response = await fetch(`http://${ip}/transcribe`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            pageNumber: pdfCurrentPage,
-            pdfName: pdfName
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Server transcription failed: ${response.statusText}`);
-        }
-
-        const responseObj = await response.json();
-        setTranscribedData(responseObj);
-        addLog(`[Laptop Server OMR] Transcribed Page ${pdfCurrentPage} successfully!`, 'SYS');
-        addLog(`OMR Output:\n${JSON.stringify(responseObj, null, 2)}`, 'WS_RX');
-      } catch (err: any) {
-        addLog(`Server Transcription Error: ${err.message}`, 'ERR');
-        console.error(err);
-      } finally {
-        setIsTranscribing(false);
-      }
-    }
-  };
-
-  const startDemoSong = () => {
-    if (isDemoPlaying) return;
-    setIsDemoPlaying(true);
-    addLog('Simulating audio: Starting Ode to Joy...', 'SYS');
-    demoSequenceIndex.current = 0;
-
-    if (demoIntervalRef.current) {
-      clearInterval(demoIntervalRef.current);
-    }
-
-    let lastNote = -1;
-    demoIntervalRef.current = setInterval(() => {
-      if (lastNote !== -1) {
-        const noteToRelease = lastNote;
-        setActiveKeys((prev) => {
-          const updated = { ...prev };
-          delete updated[noteToRelease];
-          return updated;
-        });
-      }
-
-      if (demoSequenceIndex.current >= DEMO_MELODY.length) {
-        demoSequenceIndex.current = 0;
-      }
-
-      const currentNote = DEMO_MELODY[demoSequenceIndex.current];
-      demoSequenceIndex.current++;
-
-      // Press note in right hand (represented in gold highlight)
-      setActiveKeys((prev) => ({ ...prev, [currentNote]: 'right' }));
-      addLog(`RX Note (MOCK): Status=0x90, Note=${currentNote}, Velocity=100`, 'WS_RX');
-      lastNote = currentNote;
-
-      if (keyTimeouts.current[currentNote]) {
-        clearTimeout(keyTimeouts.current[currentNote]);
-      }
-      keyTimeouts.current[currentNote] = setTimeout(() => {
-        setActiveKeys((prev) => {
-          const updated = { ...prev };
-          delete updated[currentNote];
-          return updated;
-        });
-      }, 450);
-    }, 600); // 100 BPM
-  };
-
-  const stopDemoSong = () => {
-    if (demoIntervalRef.current) {
-      clearInterval(demoIntervalRef.current);
-      demoIntervalRef.current = null;
-    }
-    setIsDemoPlaying(false);
-    setActiveKeys({});
-    addLog('Simulating audio: Stopped song.', 'SYS');
-  };
-
-  // Connect to ESP32 WebSocket
+  // Connect to laptop server WebSocket
   const connectEsp = () => {
     if (isDemoMode) {
       addLog('Cannot connect to server in Demo Mode. Switch to Laptop Server Mode first.', 'ERR');
@@ -351,16 +110,16 @@ export default function App() {
       return;
     }
 
-    addLog(`Connecting to ws://${ip}/ws ...`, 'SYS');
+    addLog(`Connecting to ws://${ip}:8000/notes ...`, 'SYS');
     setStatus('CONNECTING');
 
     try {
-      const ws = new WebSocket(`ws://${ip}/ws`);
+      const ws = new WebSocket(`ws://${ip}:8000/notes`);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         setStatus('CONNECTED');
-        addLog('Successfully connected to Laptop Server!', 'SYS');
+        addLog('Successfully connected to laptop server!', 'SYS');
       };
 
       ws.onclose = () => {
@@ -561,34 +320,19 @@ export default function App() {
 
         {/* CONNECTION / DEMO CONTROL PANEL */}
         <View style={styles.panel}>
-          {isDemoMode ? (
-            <View>
-              <Text style={styles.panelTitle}>1. Simulated Audio Input Controls</Text>
-              <View style={styles.demoControlsRow}>
-                <View style={styles.demoInfo}>
-                  <Text style={styles.demoInfoTitle}>Mock Mode Active</Text>
-                  <Text style={styles.demoInfoText}>
-                    Simulating ESP32 pitch detection. Tap the piano or start the song loop to test.
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    isDemoPlaying ? styles.buttonDisconnect : styles.buttonConnect
-                  ]}
-                  onPress={isDemoPlaying ? stopDemoSong : startDemoSong}
-                >
-                  <Text style={[styles.buttonText, !isDemoPlaying && styles.buttonTextConnect]}>
-                    {isDemoPlaying ? 'Stop Song' : 'Play Song'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.statusContainer}>
-                <View style={[styles.statusDot, styles.statusDotConnected]} />
-                <Text style={styles.statusText}>
-                  Status: <Text style={styles.statusHighlight}>DEMO (MOCKED)</Text>
-                </Text>
-              </View>
+          <Text style={styles.panelTitle}>1. WebSocket Link</Text>
+          <View style={styles.connectionRow}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Server IP Address</Text>
+              <TextInput
+                style={styles.input}
+                value={ip}
+                onChangeText={setIp}
+                placeholder="192.168.1.100"
+                placeholderTextColor="#5A626A"
+                keyboardType="numeric"
+                autoCapitalize="none"
+              />
             </View>
           ) : (
             <View>
